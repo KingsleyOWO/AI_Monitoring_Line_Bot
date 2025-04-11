@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  flask-app:
+    build: .
+    container_name: flask_line_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "4040:4040"
+    volumes:
+      - chroma_db_data:/app/chroma_db
+      - ./temp:/app/temp
+      - ./best.pt:/app/best.pt
+      # 如果你的 search_laws.py 在 core 目錄下，可以掛載，方便修改
+      - ./core:/app/core 
+    networks:
+      - app_net
+    depends_on:
+      - mysql
+      - ollama # 新增：依賴 ollama 服務
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok_service
+    restart: unless-stopped
+    command: http flask-app:4040 --authtoken ${NGROK_AUTHTOKEN} --log=stdout
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    networks:
+      - app_net
+    depends_on:
+      - flask-app
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - app_net
+    ports:
+      - "3307:3306"
+
+  # --- 新增 Ollama 服務 ---
+  ollama:
+    image: ollama/ollama:latest # 使用官方 Ollama 映像檔
+    container_name: ollama_service
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama # 持久化儲存下載的模型
+    networks:
+      - app_net
+    # 如果你想從你的電腦直接訪問 Ollama API (例如用 Postman 測試)，可以取消註解下面這行
+    # ports:
+    #  - "11434:11434" 
+
+    # --- 如果你有 NVIDIA GPU 且安裝了 nvidia-docker，可以啟用 GPU 加速 ---
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1 # 或者 'all'
+    #           capabilities: [gpu]
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    # --------------------------------------------------------------------
+
+networks:
+  app_net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  chroma_db_data:
+  ollama_data: # 新增：給 Ollama 儲存模型的 Volume
